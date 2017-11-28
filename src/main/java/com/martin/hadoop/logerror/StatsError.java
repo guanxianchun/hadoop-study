@@ -12,8 +12,14 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.log4j.Logger;
+
+import com.sun.org.apache.xalan.internal.xsltc.compiler.util.ErrorMsg;
+
+import net.sf.json.JSONObject;
 
 public class StatsError {
+	private static Logger logger = Logger.getLogger(StatsError.class);
 
 	/**
 	 * @author guan.xianchun Mapper区: StatsError程序 Map 类 Mapper<KEYIN, VALUEIN,
@@ -33,7 +39,28 @@ public class StatsError {
 			String error = line.substring(start_index, start_index + ERROR.length());
 			if (ERROR.equals(error)) {
 				try {
-					context.write(ErrorKey, one);
+					String errorData = line.substring(start_index+ERROR.length()).trim();
+					logger.info(errorData);
+					JSONObject jsonData = null;
+					int endIndex = errorData.indexOf(",");
+					if (endIndex==-1) {
+						return;
+					}
+					int msg_index = errorData.indexOf("Message");
+					String errorMsg = "";
+					if (msg_index !=-1) {
+						errorMsg = errorData.substring(msg_index+9, errorData.indexOf(",", msg_index));
+					}
+					errorData = errorData.substring(0, endIndex)+"}";
+					try {
+						jsonData = JSONObject.fromObject(errorData);
+					} catch (Exception e) {
+						e.printStackTrace();
+						return;
+					}
+					if (jsonData.containsKey("Code")) {
+						context.write(new Text(jsonData.getString("Code")+"_"+errorMsg), one);
+					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
@@ -72,16 +99,21 @@ public class StatsError {
 		// 获取配置信息
 		Configuration conf = new Configuration();
 		conf.set("mapred.jar", "C:/Users/Administrator/Downloads/abcloudbackup/StatsError.jar");
-
+		conf.set("tmpjars","hdfs://master:9000/libjars/json-lib-2.4.jar,hdfs://master:9000/libjars/ezmorph-1.0.6.jar");
+		//创建任务对象 设置JAR类
+		@SuppressWarnings("deprecation")
 		Job job = new Job(conf, "statics application error");
-		//
+		
 		job.setJarByClass(StatsError.class);
-		job.setMapperClass(TokenizerMapper.class);
-		job.setReducerClass(ErrorSumReducer.class);
-		job.setOutputKeyClass(Text.class);
-		job.setOutputValueClass(IntWritable.class);
+		//设置输入输出目录
 		FileInputFormat.addInputPath(job, new Path(args[0]));
 		FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		//指定MR类
+		job.setMapperClass(TokenizerMapper.class);
+		job.setReducerClass(ErrorSumReducer.class);
+		//指定输出结果类类型
+		job.setOutputKeyClass(Text.class);
+		job.setOutputValueClass(IntWritable.class);
 		System.exit(job.waitForCompletion(true) ? 0 : 1);
 	}
 }
